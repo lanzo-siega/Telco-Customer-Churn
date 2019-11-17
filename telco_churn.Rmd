@@ -1,0 +1,237 @@
+---
+title: "Telco Churn"
+author: "Lanzo Siega"
+date: "27/10/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Checking Working Directory
+```{r}
+getwd()
+```
+
+Assigning "telco" variable
+```{r}
+telco <- read.csv("WA_Fn-UseC_-Telco-Customer-Churn.csv")
+```
+
+Packages
+```{r}
+install.packages(c("corrplot","tidyverse","dplyr"))
+
+library(dplyr)
+library(ggplot2)
+library(corrplot)
+library(GGally)
+```
+
+
+# Exploratory Statistics
+
+structure of telco
+```{r}
+str(telco)
+View(telco)
+summary(telco)
+```
+
+
+replacing "SeniorCitizen" numeric values with "Yes/No" and converting to factor
+```{r}
+telco$SeniorCitizen <- gsub('0', 'No', telco$SeniorCitizen)
+telco$SeniorCitizen <- gsub('1', 'Yes', telco$SeniorCitizen)
+telco$SeniorCitizen <- as.factor(telco$SeniorCitizen)
+
+class(telco$SeniorCitizen)
+```
+
+Renaming PaymentMethod
+```{r}
+levels(telco$PaymentMethod) <- c("Bank transfer", "Credit card", "Electronic check", "Mailed check")
+```
+
+
+Replacing NA values in TotalCharges with mean of TotalCharges
+```{r}
+subset(telco, is.na(telco$TotalCharges))
+telco <- na.omit(telco)
+sum(is.na(telco))
+
+```
+
+Boxplot for Quantitative Variables
+```{r}
+boxplot(telco$tenure, main = "tenure")
+boxplot(telco$MonthlyCharges, main = "MonthlyCharges")
+boxplot(telco$TotalCharges, main = "TotalCharges")
+}
+```
+
+Correlation Matrix for Quantitative Variables
+```{r}
+quant <- telco[,c(6,19,20)]
+
+ggcorr(quant,label = T, digits = 3, low = "#ff0f0f", mid = "#ffffff", high = "#0206ed", midpoint = 0)
+```
+
+Histogram of Numeric variables grouped by Churn
+```{r}
+
+
+for (i in c(2:length(colnames(telco)))){
+  if (is.numeric(telco[,i]) == T ){
+     print(ggplot(telco, aes(x = telco[,i], fill = Churn)) + 
+            geom_histogram(bins = 10) + labs(x = colnames(telco)[i]))
+  }
+}
+
+```
+
+Barplot for Qualitative variables
+```{r}
+
+for (i in c(2:length(colnames(telco)))){
+  if (is.factor(telco[,i]) == T ){
+    print(
+      ggplot(telco, aes(telco[,i], fill = Churn)) + 
+        geom_bar(position = "fill") + 
+        labs(x = colnames(telco)[i]) + 
+        theme(axis.text.x = element_text(size = 8)))
+  }
+}
+
+```
+
+Barplot for Churn
+```{r}
+
+ggplot(telco, aes(x = Churn, y = (..count../sum(..count..)), fill = Churn)) + 
+  geom_bar() + 
+  scale_y_continuous(labels=scales::percent) +
+  ylab("Frequency")
+
+```
+
+#Classification
+
+Balancing the data (Oversampling, undersampling, SMOTE)
+```{r}
+
+install.packages("unbalanced")
+library(unbalanced)
+levels(telco$Churn) <- c(0,1)
+
+ind_var <- telco[,1:20]
+cl <- telco$Churn
+
+usdat <- ubUnder(X=ind_var, Y = cl,perc = 30, method = "percPos")
+us_cust <- cbind(usdat$X, usdat$Y)
+colnames(us_cust)[21] <- "Churn"
+barplot(table(us_cust[,21]), xlab = colnames(us_cust)[21])
+
+osdat <- ubOver(X=ind_var, Y=cl) #best result
+os_cust <- cbind(osdat$X, osdat$Y)
+colnames(os_cust)[21] <- "Churn"
+barplot(table(os_cust[,21]), main = "Balanced Data through Oversampling", ylab = "Count", xlab = colnames(os_cust)[21])
+
+smdat <- ubSMOTE(X=ind_var, Y = cl)
+sm_cust <- cbind(smdat$X, smdat$Y)
+colnames(sm_cust)[21] <- "Churn"
+barplot(table(sm_cust[,21]), xlab = colnames(sm_cust)[21])
+
+```
+
+Algorithms
+
+Splitting into Train/Test sets
+```{r}
+
+set.seed(40)
+train <- sample(nrow(os_cust), 0.7*nrow(os_cust), replace = FALSE)
+TrainSet <- os_cust[train, -1]
+TestSet <- os_cust[-train, -1]
+
+summary(TrainSet)
+summary(TestSet)
+
+```
+
+
+Random Forest
+```{r}
+
+install.packages("randomForest")
+library(randomForest)
+
+rfmod <- randomForest(Churn ~ ., data = TrainSet, importance = T)
+rfmod
+
+predTrain <- predict(rfmod, TrainSet, type = "class")
+table(predTrain, TrainSet$Churn)
+
+predTest <- predict(rfmod, TestSet, type = "class")
+rfacc <- mean(predTest == TestSet$Churn)
+
+rfacc
+table(predTest, TestSet$Churn)
+```
+
+Naive Bayes
+```{r}
+
+install.packages("e1071")
+library(e1071)
+
+nbmod <- naiveBayes(Churn ~., data = TrainSet)
+nbmod
+
+nbTrain <- predict(nbmod, TrainSet, type = "class")
+table(nbTrain, TrainSet$Churn)
+
+nbTest <- predict(nbmod, TestSet, type = "class")
+nbacc <- mean(nbTest == TestSet$Churn)
+table(nbTest, TestSet$Churn)
+
+```
+
+SVM
+```{r}
+
+#also available through the e1071 package
+
+svmod <- svm(Churn ~., data = TrainSet, type = "C-classification", kernel = "linear")
+svmod
+
+svmTrain <- predict(svmod,TrainSet, type = "class")
+table(svmTrain, TrainSet$Churn)
+
+svmTest <- predict(svmod, TestSet, type = "class")
+svmacc <- mean(svmTest == TestSet$Churn)
+table(svmTest, TestSet$Churn)
+
+```
+
+Graphing Algorithm Accuracy
+```{r}
+
+
+accuracy <- c(rfacc, nbacc, svmacc)
+
+barplot(accuracy,
+        main = "Accuracy of Algorithm",
+        xlab = "Algorithm",
+        ylab = "Accuracy (%)",
+        names.arg = c("Random Forest", "Naive Bayes", "SVM"),
+        col = c("#228B22", "#1E90FF", "#CD5C5C"))
+
+
+```
+
+
+
+
+
